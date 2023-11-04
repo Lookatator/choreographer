@@ -1,0 +1,78 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+	Author luca.grillotti16@imperial.ac.uk
+    Author m.faldor22@imperial.ac.uk
+
+%help
+	Dreamax
+
+%environment
+	# Activate virtual environment
+	export VIRTUAL_ENV="/venv"
+	export _OLD_VIRTUAL_PATH="$PATH"
+	export PATH="$VIRTUAL_ENV/bin:$PATH"
+
+	# System
+	export TZ=Europe/London
+
+	# scikit-learn
+	export OPENBLAS_NUM_THREADS=1
+
+%post
+	export DEBIAN_FRONTEND=noninteractive
+
+	# Update and install required libraries
+	apt update
+	apt install -y wget git software-properties-common
+
+	# Install Python
+	add-apt-repository ppa:deadsnakes/ppa
+	apt install -y python3.10 python3.10-venv
+        
+        # install Choreographer
+        export CONDA_DIR=/opt/conda
+        wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && /bin/bash ~/miniconda.sh -b -p /opt/conda
+        export PATH=$CONDA_DIR/bin:$PATH
+        cd /
+        git clone https://github.com/mazpie/choreographer.git choreographer/
+        cd choreographer/
+        conda env create -f conda_env.yml
+
+	# Create a virtual environment
+	python3.10 -m venv /venv
+	. /venv/bin/activate
+	python -m ensurepip
+	pip install --upgrade pip
+
+	# Install JAX
+	pip install --upgrade "jax[cuda11_pip]==0.4.16" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+	# Install Brax with renderer
+	pip install git+https://github.com/JoeyTeng/brax.git@main
+
+	# Clone repository to /project/
+
+	# If GITLAB_TOKEN is set, use it to clone the repository without having to enter the password
+	if [ ! -z "${GITLAB_TOKEN}" ]
+    then
+      git clone https://oauth:${GITLAB_TOKEN}@gitlab.doc.ic.ac.uk/AIRL/research_projects/luca_grillotti/dreamer-v3.git /project/
+    else
+      git clone https://gitlab.doc.ic.ac.uk/AIRL/research_projects/luca_grillotti/dreamer-v3.git /project/
+    fi
+
+	cd /project/
+	git checkout $COMMIT
+	git config --global --add safe.directory '*'
+
+	# Install requirements
+	pip install -r requirements.txt
+
+
+%runscript
+	# Run main
+	python /project/main.py "$@"
+
+%apprun gen_job_scripts
+    python /project/submodules/gitlab_notebook/gen_job_script.py "$@"
