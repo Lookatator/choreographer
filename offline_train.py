@@ -1,5 +1,7 @@
 import warnings
 
+from agent.choreo import Array
+
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 import os
@@ -13,7 +15,6 @@ import hydra
 import numpy as np
 import torch
 import wandb
-from dm_env import specs
 
 import envs
 import utils
@@ -22,7 +23,6 @@ from replay import ReplayBuffer, make_replay_loader
 
 torch.backends.cudnn.benchmark = True
 
-from dmc_benchmark import PRIMAL_TASKS
 from hydra.utils import get_original_cwd, to_absolute_path
 
 def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
@@ -53,7 +53,7 @@ class Workspace:
                              use_tb=cfg.use_tb,
                              use_wandb=cfg.use_wandb)
         # create envs
-        task = cfg.task if cfg.task != 'none' else PRIMAL_TASKS[self.cfg.domain] # -> which is the URLB default
+        task = cfg.task if cfg.task != 'none' else None # -> which is the URLB default
         frame_stack = 1
         img_size = 64
 
@@ -74,8 +74,9 @@ class Workspace:
         # create replay buffer
         data_specs = (self.eval_env.observation_spec(),
                       self.eval_env.action_spec(),
-                      specs.Array((1,), np.float32, 'reward'),
-                      specs.Array((1,), np.float32, 'discount'))
+                      Array((1,), np.float32, 'reward'),
+                      Array((1,), np.float32, 'discount'))
+
 
         print(f'replay dir : {cfg.dataset_dir}')
         # create replay storage

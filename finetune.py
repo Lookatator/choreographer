@@ -1,5 +1,7 @@
 import warnings
 
+from agent.choreo import Array
+
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 import os
@@ -12,7 +14,6 @@ import hydra
 import numpy as np
 import torch
 import wandb
-from dm_env import specs
 
 import envs
 import utils
@@ -77,8 +78,8 @@ class Workspace:
         # create replay buffer
         data_specs = (self.train_env.observation_spec(),
                       self.train_env.action_spec(),
-                      specs.Array((1,), np.float32, 'reward'),
-                      specs.Array((1,), np.float32, 'discount'))
+                      Array((1,), np.float32, 'reward'),
+                      Array((1,), np.float32, 'discount'))
 
         # create replay storage
         self.replay_storage = ReplayBuffer(data_specs, meta_specs,

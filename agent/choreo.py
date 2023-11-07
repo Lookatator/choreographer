@@ -1,15 +1,145 @@
+import inspect
+from typing import Optional
+
 import torch.nn as nn
 import torch
 
 from collections import OrderedDict
 import numpy as np
-from dm_env import specs
 
 import utils
 import agent.net_utils as common
 from agent.mb_utils import *
 from agent.skill_behavior import *
 from agent.skill_rep import *
+
+_INVALID_SHAPE = 'Expected shape %r but found %r'
+_INVALID_DTYPE = 'Expected dtype %r but found %r'
+_OUT_OF_BOUNDS = 'Values were not all within bounds %s <= %s <= %s'
+_VAR_ARGS_NOT_ALLOWED = 'Spec subclasses must not accept *args.'
+_VAR_KWARGS_NOT_ALLOWED = 'Spec subclasses must not accept **kwargs.'
+_MINIMUM_MUST_BE_LESS_THAN_OR_EQUAL_TO_MAXIMUM = (
+    'All values in `minimum` must be less than or equal to their corresponding '
+    'value in `maximum`, got:\nminimum={minimum!r}\nmaximum={maximum!r}.')
+_MINIMUM_INCOMPATIBLE_WITH_SHAPE = '`minimum` is incompatible with `shape`'
+_MAXIMUM_INCOMPATIBLE_WITH_SHAPE = '`maximum` is incompatible with `shape`'
+
+
+class Array:
+  """Describes a numpy array or scalar shape and dtype.
+
+  An `Array` spec allows an API to describe the arrays that it accepts or
+  returns, before that array exists.
+  The equivalent version describing a `tf.Tensor` is `TensorSpec`.
+  """
+  __slots__ = ('_shape', '_dtype', '_name')
+  __hash__ = None
+
+  def __init__(self, shape, dtype, name: Optional[str] = None):
+    """Initializes a new `Array` spec.
+
+    Args:
+      shape: An iterable specifying the array shape.
+      dtype: numpy dtype or string specifying the array dtype.
+      name: Optional string containing a semantic name for the corresponding
+        array. Defaults to `None`.
+
+    Raises:
+      TypeError: If `shape` is not an iterable of elements convertible to int,
+      or if `dtype` is not convertible to a numpy dtype.
+    """
+    self._shape = tuple(int(dim) for dim in shape)
+    self._dtype = np.dtype(dtype)
+    self._name = name
+
+  @property
+  def shape(self):
+    """Returns a `tuple` specifying the array shape."""
+    return self._shape
+
+  @property
+  def dtype(self):
+    """Returns a numpy dtype specifying the array dtype."""
+    return self._dtype
+
+  @property
+  def name(self):
+    """Returns the name of the Array."""
+    return self._name
+
+  def __repr__(self):
+    return 'Array(shape={}, dtype={}, name={})'.format(self.shape,
+                                                       repr(self.dtype),
+                                                       repr(self.name))
+
+  def __eq__(self, other):
+    """Checks if the shape and dtype of two specs are equal."""
+    if not isinstance(other, Array):
+      return False
+    return self.shape == other.shape and self.dtype == other.dtype
+
+  def __ne__(self, other):
+    return not self == other
+
+  def _fail_validation(self, message, *args):
+    message %= args
+    if self.name:
+      message += ' for spec %s' % self.name
+    raise ValueError(message)
+
+  def validate(self, value):
+    """Checks if value conforms to this spec.
+
+    Args:
+      value: a numpy array or value convertible to one via `np.asarray`.
+
+    Returns:
+      value, converted if necessary to a numpy array.
+
+    Raises:
+      ValueError: if value doesn't conform to this spec.
+    """
+    value = np.asarray(value)
+    if value.shape != self.shape:
+      self._fail_validation(_INVALID_SHAPE, self.shape, value.shape)
+    if value.dtype != self.dtype:
+      self._fail_validation(_INVALID_DTYPE, self.dtype, value.dtype)
+    return value
+
+  def generate_value(self):
+    """Generate a test value which conforms to this spec."""
+    return np.zeros(shape=self.shape, dtype=self.dtype)
+
+  def _get_constructor_kwargs(self):
+    """Returns constructor kwargs for instantiating a new copy of this spec."""
+    # Get the names and kinds of the constructor parameters.
+    params = inspect.signature(type(self)).parameters
+    # __init__ must not accept *args or **kwargs, since otherwise we won't be
+    # able to infer what the corresponding attribute names are.
+    kinds = {value.kind for value in params.values()}
+    if inspect.Parameter.VAR_POSITIONAL in kinds:
+      raise TypeError(_VAR_ARGS_NOT_ALLOWED)
+    elif inspect.Parameter.VAR_KEYWORD in kinds:
+      raise TypeError(_VAR_KWARGS_NOT_ALLOWED)
+    # Note that we assume direct correspondence between the names of constructor
+    # arguments and attributes.
+    return {name: getattr(self, name) for name in params.keys()}
+
+  def replace(self, **kwargs):
+    """Returns a new copy of `self` with specified attributes replaced.
+
+    Args:
+      **kwargs: Optional attributes to replace.
+
+    Returns:
+      A new copy of `self`.
+    """
+    all_kwargs = self._get_constructor_kwargs()
+    all_kwargs.update(kwargs)
+    return type(self)(**all_kwargs)
+
+  def __reduce__(self):
+    return Array, (self._shape, self._dtype, self._name)
 
 class ChoreoAgent(nn.Module):
   def __init__(self, name, cfg, obs_space, act_spec, **kwargs):
@@ -55,7 +185,7 @@ class ChoreoAgent(nn.Module):
       return self.init_meta_discrete()
 
   def get_meta_specs(self):
-      return (specs.Array((self.skill_dim,), np.float32, 'skill'),)
+      return (Array((self.skill_dim,), np.float32, 'skill'),)
 
   def init_meta_discrete(self):
       skill = np.zeros(self.skill_dim, dtype=np.float32)
